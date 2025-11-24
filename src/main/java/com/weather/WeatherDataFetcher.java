@@ -19,8 +19,8 @@ public class WeatherDataFetcher {
 
     public JsonObject fetchWeatherData(String city) {
         try {
-            String urlString = "http://api.openweathermap.org/data/2.5/weather?q=" +
-                    city + "&appid=" + apiKey + "&units=metric";
+            // URL is correct for WeatherAPI's current weather endpoint
+            String urlString = "http://api.weatherapi.com/v1/current.json?key=" + apiKey + "&q=" + city + "&aqi=no";
 
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -43,7 +43,17 @@ public class WeatherDataFetcher {
                 in.close();
                 connection.disconnect();
 
-                return gson.fromJson(content.toString(), JsonObject.class);
+                JsonObject response = gson.fromJson(content.toString(), JsonObject.class);
+
+                // Check if the API returned an error
+                if (response.has("error")) {
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "API error: " + response.get("error").getAsJsonObject().get("message").getAsString());
+                    error.addProperty("city", city);
+                    return error;
+                }
+
+                return response;
 
             } else {
                 JsonObject error = new JsonObject();

@@ -11,7 +11,8 @@ import java.net.URL;
 
 public class WebSocketServer {
     private static final Gson gson = new Gson();
-    private static final String API_KEY = "bb03421c528c490c842112244250911"; // Replace with your OpenWeatherMap API key
+    // Using the same API key as provided in the original code
+    private static final String API_KEY = "bb03421c528c490c842112244250911";
 
     public static void main(String[] args) {
         Server server = new Server("localhost", 8080, "/ws", null, WeatherServerEndpoint.class);
@@ -22,13 +23,12 @@ public class WebSocketServer {
             System.out.println("Server URL: ws://localhost:8080/ws/weather");
             System.out.println("Web Dashboard: http://localhost:8080/webapp/index.html");
 
-            // Background weather update thread
+
             Thread weatherUpdater = new Thread(() -> {
                 WeatherDataFetcher fetcher = new WeatherDataFetcher(API_KEY);
                 int updateCount = 0;
 
                 try {
-                    // Initial delay to let server stabilize
                     Thread.sleep(5000);
 
                     while (true) {
@@ -43,35 +43,52 @@ public class WebSocketServer {
                                 JsonObject weatherData = fetcher.fetchWeatherData(city);
 
                                 if (weatherData != null && !weatherData.has("error")) {
-                                    // Create weather update message
-                                    JsonObject weatherUpdate = new JsonObject();
-                                    weatherUpdate.addProperty("type", "weatherUpdate");
-                                    weatherUpdate.addProperty("city", city);
-                                    weatherUpdate.addProperty("temperature",
-                                            weatherData.getAsJsonObject("main").get("temp").getAsDouble());
-                                    weatherUpdate.addProperty("description",
-                                            weatherData.getAsJsonArray("weather").get(0).getAsJsonObject()
-                                                    .get("description").getAsString());
-                                    weatherUpdate.addProperty("humidity",
-                                            weatherData.getAsJsonObject("main").get("humidity").getAsInt());
-                                    weatherUpdate.addProperty("windSpeed",
-                                            weatherData.getAsJsonObject("wind").get("speed").getAsDouble());
-                                    weatherUpdate.addProperty("timestamp", System.currentTimeMillis());
+                                    // *** START OF FIX ***
+                                    // WeatherAPI uses "current" for main weather data, not "main" or "weather"
+                                    JsonObject current = weatherData.getAsJsonObject("current");
 
-                                    // Broadcast to all clients subscribed to this city
-                                    WeatherServerEndpoint.broadcastToSubscribers(city, gson.toJson(weatherUpdate));
+                                    if (current != null) {
+                                        // Create weather update message
+                                        JsonObject weatherUpdate = new JsonObject();
+                                        weatherUpdate.addProperty("type", "weatherUpdate");
+                                        weatherUpdate.addProperty("city", city);
 
-                                    System.out.println("  ✓ Updated weather for: " + city +
-                                            " - " + weatherUpdate.get("temperature").getAsDouble() + "°C");
+                                        // Use "temp_c" for temperature
+                                        weatherUpdate.addProperty("temperature",
+                                                current.get("temp_c").getAsDouble());
+
+                                        // Use "condition" object and "text" for description
+                                        weatherUpdate.addProperty("description",
+                                                current.getAsJsonObject("condition").get("text").getAsString());
+
+                                        // Humidity is a direct property of "current"
+                                        weatherUpdate.addProperty("humidity",
+                                                current.get("humidity").getAsInt());
+
+                                        // Use "wind_kph" for wind speed (in kph)
+                                        weatherUpdate.addProperty("windSpeed",
+                                                current.get("wind_kph").getAsDouble());
+
+                                        weatherUpdate.addProperty("timestamp", System.currentTimeMillis());
+
+                                        // Broadcast to all clients subscribed to this city
+                                        WeatherServerEndpoint.broadcastToSubscribers(city, gson.toJson(weatherUpdate));
+
+                                        System.out.println("  ✓ Updated weather for: " + city +
+                                                " - " + weatherUpdate.get("temperature").getAsDouble() + "°C");
+                                    } else {
+                                        System.err.println("  ✗ Data structure error for: " + city);
+                                    }
+                                    // *** END OF FIX ***
                                 } else {
-                                    System.err.println("  ✗ Failed to fetch weather for: " + city);
+                                    System.err.println("  ✗ Failed to fetch weather for: " + city);
                                 }
 
                                 // Small delay between API calls to avoid rate limiting
                                 Thread.sleep(1000);
 
                             } catch (Exception e) {
-                                System.err.println("  ✗ Error fetching weather for " + city + ": " + e.getMessage());
+                                System.err.println("  ✗ Error fetching weather for " + city + ": " + e.getMessage());
                             }
                         }
 
